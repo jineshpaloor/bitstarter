@@ -22,18 +22,33 @@ References:
 */
 
 var fs = require('fs');
+var sys = require('sys');
 var program = require('commander');
 var cheerio = require('cheerio');
+var rest = require('restler');
 var HTMLFILE_DEFAULT = "index.html";
+var URL_DEFAULT = "https://enigmatic-garden-9511.herokuapp.com/";
 var CHECKSFILE_DEFAULT = "checks.json";
+var URL_HTML = "home.html";
 
 var assertFileExists = function(infile) {
     var instr = infile.toString();
     if(!fs.existsSync(instr)) {
-        console.log("%s does not exist. Exiting.", instr);
         process.exit(1); // http://nodejs.org/api/process.html#process_process_exit_code
     }
     return instr;
+};
+
+var assertHtmlExists = function(inurl) {
+    rest.get(inurl).on('complete', function(result){
+        if (result instanceof Error) {
+            sys.puts('Error: ' + result.message);
+            process.exit(1); // http://nodejs.org/api/process.html#process_process_exit_code
+        } else {
+            //sys.puts(result);
+            return result;
+        }
+    })
 };
 
 var cheerioHtmlFile = function(htmlfile) {
@@ -61,14 +76,46 @@ var clone = function(fn) {
     return fn.bind({});
 };
 
+var download = function(url, callback) {
+    var resp = rest.get(url);
+    resp.on('complete', function(result) {
+        if (result instanceof Error) {
+            // callback(result);
+            sys.puts('Error: ' + result.message);
+            //this.retry(5000); // try again after 5 sec
+            return;
+        }
+        fs.writeFileSync(URL_HTML, result);
+        //process.exit(1);
+        callback(null, URL_HTML);
+    });
+};
+
 if(require.main == module) {
     program
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
         .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+        .option('-u, --url <web_url>', 'web url to download')
         .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
+
+    // this function loads checks & checks html
+    var check = function (err, html) {
+        if (err) {
+            console.log('Error getting html: ' + err);
+            process.exit(1);
+        }
+        var checkJson = checkHtmlFile(html, program.checks);
+        var outJson = JSON.stringify(checkJson, null, 4);
+        console.log(outJson);
+    }
+
+    if (program.url) {
+        // download the provided url and then check the html
+        download(program.url, check);
+    } else if (program.file) {
+        // load html from a file and then check it
+        fs.readFile(program.file, check);
+    }
 } else {
     exports.checkHtmlFile = checkHtmlFile;
 }
